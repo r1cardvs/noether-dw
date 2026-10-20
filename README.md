@@ -74,7 +74,12 @@ npm test
 npm start
 ```
 
-A API sobe em `http://localhost:3000`. O health check fica em `GET /health`.
+A API sobe em `http://localhost:3000`.
+
+| Método | Rota | Resposta |
+| --- | --- | --- |
+| `GET` | `/` ou `/info` | JSON com `sistema`, `versao`, `autor` e `dataCriacao` |
+| `GET` | `/health` | `{ "status": "ok" }` |
 
 ### Container
 
@@ -87,8 +92,8 @@ docker run --rm -p 3000:3000 noether-dw
 
 O workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) executa:
 
-1. **CI** em pull requests e em `main`: instala dependências e roda `npm test`.
-2. **Deploy** apenas em push para `main`: constrói a imagem Node.js, envia ao ECR e atualiza o serviço ECS.
+1. **CI** em pull requests e em `sprint-1`: instala dependências e roda `npm test`.
+2. **Deploy** apenas em push para `sprint-1`: constrói a imagem Node.js, envia ao ECR e atualiza o serviço ECS.
 
 ### Secrets do repositório
 

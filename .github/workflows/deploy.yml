@@ -2,9 +2,9 @@ name: CI and AWS Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [sprint-1]
   pull_request:
-    branches: [main]
+    branches: [sprint-1]
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
   deploy:
     name: Build and deploy to AWS ECS
     needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/sprint-1'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
