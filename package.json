@@ -1,0 +1,14 @@
+{
+  "name": "noether-dw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Data Warehouse e API para consolidação e análise de precedentes e doutrinas jurídicas.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
