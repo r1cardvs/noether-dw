@@ -93,13 +93,13 @@ docker run --rm -p 3000:3000 noether-dw
 O workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) executa:
 
 1. **CI** em pull requests e em `sprint-1`: instala dependências e roda `npm test`.
-2. **Deploy** apenas em push para `sprint-1`: cria o repositório ECR se ele ainda não existir, constrói a imagem Node.js, envia ao ECR e atualiza o serviço ECS.
+2. **Deploy** apenas em push para `sprint-1`: cria o repositório ECR se ele ainda não existir, constrói a imagem Node.js, envia ao ECR, registra a task definition com a role real da conta e sobe o serviço no ECS Fargate.
 
 ### Secrets do repositório
 
 | Secret | Uso |
 | --- | --- |
-| `AWS_ACCESS_KEY_ID` | Credencial IAM com permissão em ECR (`CreateRepository`, `DescribeRepositories`, push de imagem) e ECS |
+| `AWS_ACCESS_KEY_ID` | Credencial IAM com permissão em ECR, ECS, IAM (`GetRole`/`CreateRole` da `ecsTaskExecutionRole`), CloudWatch Logs e EC2 (VPC/subnets/security group) |
 | `AWS_SECRET_ACCESS_KEY` | Credencial IAM |
 
 ### Variables do repositório (opcionais)
@@ -112,7 +112,7 @@ O workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) execut
 | `ECS_SERVICE` | `noether-dw-service` |
 | `ECS_CONTAINER_NAME` | `noether-dw` |
 
-Antes do primeiro deploy, ajuste `.aws/task-definition.json` com o `ACCOUNT_ID` da AWS, a role de execução do ECS e o log group `/ecs/noether-dw`.
+O arquivo `.aws/task-definition.json` é um template. No deploy, o workflow troca `ACCOUNT_ID` pela conta real, cria a role `ecsTaskExecutionRole` se ela não existir, e sobe cluster/serviço Fargate na VPC padrão.
 
 ## Fontes de dados
 
