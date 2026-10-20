@@ -79,18 +79,61 @@ jobs:
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: .aws/task-definition.json
-          container-name: ${{ env.ECS_CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+      - name: Prepare ECS and deploy
+        env:
+          IMAGE: ${{ steps.build-image.outputs.image }}
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          ROLE_NAME="ecsTaskExecutionRole"
+          LOG_GROUP="/ecs/noether-dw"
+          export ACCOUNT_ID AWS_REGION IMAGE ROLE_NAME LOG_GROUP
+          TRUST_POLICY='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+            aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST_POLICY"
+            aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+            sleep 15
+          fi
+
+          aws logs create-log-group --log-group-name "$LOG_GROUP" --region "$AWS_REGION" >/dev/null 2>&1 || true
+
+          CLUSTER_STATUS="$(aws ecs describe-clusters --clusters "$ECS_CLUSTER" --query 'clusters[0].status' --output text)"
+          if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
+            aws ecs create-cluster --cluster-name "$ECS_CLUSTER"
+          fi
+
+          python3 -c "
+          import json, os
+          with open('.aws/task-definition.json', encoding='utf-8') as handle:
+              task_definition = json.load(handle)
+          task_definition['executionRoleArn'] = 'arn:aws:iam::%s:role/%s' % (os.environ['ACCOUNT_ID'], os.environ['ROLE_NAME'])
+          container = task_definition['containerDefinitions'][0]
+          container['image'] = os.environ['IMAGE']
+          container['logConfiguration']['options']['awslogs-group'] = os.environ['LOG_GROUP']
+          container['logConfiguration']['options']['awslogs-region'] = os.environ['AWS_REGION']
+          with open('/tmp/task-definition.json', 'w', encoding='utf-8') as handle:
+              json.dump(task_definition, handle)
+          "
+
+          TASK_ARN="$(aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)"
+
+          SERVICE_STATUS="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].status' --output text)"
+
+          if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
+            VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)"
+            SUBNET_CSV="$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[0:2].SubnetId' --output text | tr '\t' ',')"
+            SG_ID="$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=noether-dw-sg" --query 'SecurityGroups[0].GroupId' --output text)"
+
+            if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
+              SG_ID="$(aws ec2 create-security-group --group-name noether-dw-sg --description "Noether DW API" --vpc-id "$VPC_ID" --query GroupId --output text)"
+              aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 3000 --cidr 0.0.0.0/0 >/dev/null
+            fi
+
+            aws ecs create-service --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --task-definition "$TASK_ARN" --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${SUBNET_CSV}],securityGroups=[${SG_ID}],assignPublicIp=ENABLED}"
+          else
+            aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$TASK_ARN" --force-new-deployment >/dev/null
+          fi
+
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          echo "Deploy concluido: $TASK_ARN"
