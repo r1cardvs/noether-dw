@@ -1,11 +1,20 @@
-FROM node:20-alpine AS base
+# Usa uma imagem oficial do Node.js
+FROM node:20-alpine
+
+# Define o diretório de trabalho dentro do container
 WORKDIR /app
 
-COPY package.json ./
-COPY src ./src
+# Copia os ficheiros de dependências
+COPY package*.json ./
 
-ENV NODE_ENV=production
-ENV PORT=3000
+# Instala as dependências (em produção, use npm ci)
+RUN npm ci --only=production
+
+# Copia o resto do código da aplicação
+COPY . .
+
+# Expõe a porta que o Express está a escutar
 EXPOSE 3000
 
-CMD ["node", "src/index.js"]
+# Comando para iniciar a aplicação
+CMD ["npm", "start"]
